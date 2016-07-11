@@ -8,7 +8,7 @@
     android:paddingLeft="@dimen/activity_horizontal_margin"
     android:paddingRight="@dimen/activity_horizontal_margin"
     android:paddingTop="@dimen/activity_vertical_margin"
-    tools:context="com.zpf416.ar_android.GL3OpenCV">
+    tools:context="com.zpf416.arandroid.GL3OpenCV">
 
     <TextView
         android:layout_width="wrap_content"
