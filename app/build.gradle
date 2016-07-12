@@ -13,12 +13,12 @@ model {
 
         ndk{
             moduleName 'gl3jni'
-            CFlags.addAll(['-Wall'])
+            cppFlags.addAll(['-Wall'])
             cppFlags.add("-std=c++11") // Add provisions to allow C++11 functionality
             cppFlags.add("-fexceptions")
             // YOUR OPENCV DIRECTORY!!!
-            String libsDir = "-I" + rootDir.absolutePath + "/OpenCV-android-sdk/sdk/native/jni/include"
-            cppFlags.add(libsDir)
+            //must CFlags according to the suffix of source
+            cppFlags.add('-I' + file("/Users/pengfei/github/AR_andorid/OpenCV-android-sdk/sdk/native/jni/include"))
             ldLibs.addAll(["android", "EGL", "GLESv2", "dl", "log", "z"])
             stl = "gnustl_shared"
 
