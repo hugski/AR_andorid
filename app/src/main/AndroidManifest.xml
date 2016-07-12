@@ -8,7 +8,7 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
-        <activity android:name="com.zpf416.gl3jni.GL3JNIActivity">
+        <activity android:name="com.zpf416.gl3jni.GL3OpenCvActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
 

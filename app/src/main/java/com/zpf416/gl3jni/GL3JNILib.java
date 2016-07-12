@@ -16,4 +16,10 @@ public class GL3JNILib {
      */
     public static native void init(int width, int height);
     public static native void step();
+
+    public static native void setScale(float scale);
+    public static native void resetRotDataOffset();
+    public static native void setRotMatrix(float [] rotMatrix);
+
+    public static native void setImage(long ImageRGBA);
 }
