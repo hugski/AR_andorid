@@ -1,68 +1,48 @@
-apply plugin: 'com.android.model.application'
+apply plugin: 'com.android.application'
 
-model {
-    repositories{
-        libs(org.gradle.nativeplatform.PrebuiltLibraries){
-            yourLib {
-                headers.srcDir file('C:\\Users\\zpff\\Desktop\\github\\AR_android\\OpenCV-android-sdk\\sdk\\native\\jni\\include').toString()
-                binaries.withType(StaticLibraryBinary) {
-                    staticLibraryFile = file("C:\\Users\\zpff\\Desktop\\github\\AR_android\\OpenCV-android-sdk\\sdk\\native\\libs\\${targetPlatform.getName()}\\libopencv_core.a")
-                }
+
+android {
+    compileSdkVersion = 23
+    buildToolsVersion = "24.0.0"
+
+    defaultConfig {
+        applicationId = "com.zpf416.ar_android"
+        minSdkVersion  19
+        targetSdkVersion 22
+
+        externalNativeBuild {
+            ndkBuild {
+                arguments "NDK_APPLICATION_MK:=src/main/jni/Application.mk"
+                abiFilters "armeabi-v7a"
             }
         }
+
     }
-    android {
-        compileSdkVersion = 23
-        buildToolsVersion = "24.0.0"
 
-        defaultConfig {
-            applicationId = "com.zpf416.ar_android"
-            minSdkVersion.apiLevel = 16
-            targetSdkVersion.apiLevel = 22
-        }
-
-        sources {
-            main {
-                jni {
-                    exportedHeaders {
-                        srcDir "glm/"
-                    }
-                    source {
-                        srcDir "src/main/jni"
-                    }
-                    dependencies {
-                        library "yourLib" linkage "static"
-                    }
-                }
-                jniLibs {
-                    source {
-                        srcDir 'src/main/libs'
-                    }
-                }
-            }
-        }
-
-        ndk{
-            moduleName 'gl3jni'
-            cppFlags.addAll(['-frtti','-fexceptions'])
-            // YOUR OPENCV DIRECTORY!!!
-            //must CFlags according to the suffix of source
-//            ldLibs.addAll(["GLESv3", "m", "log"])
-            stl = "gnustl_static"
-
-        }
-        buildTypes {
-            release {
-                minifyEnabled false
-                proguardFiles.add(file('proguard-rules.txt'))
-            }
-            debug{
-                debuggable true
-            }
+    externalNativeBuild{
+        ndkBuild{
+            path "src/main/jni/Android.mk"
         }
     }
 
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.txt'
+        }
+        debug {
+            applicationIdSuffix ".debug"
+        }
+
+
+        jnidebug {
+            initWith(buildTypes.debug)
+            applicationIdSuffix ".jnidebug"
+            jniDebuggable true
+        }
+    }
 }
+
 
 dependencies {
     compile fileTree(include: ['*.jar'], dir: 'libs')

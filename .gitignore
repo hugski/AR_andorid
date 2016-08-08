@@ -13,5 +13,8 @@ opencv_demo_1/
 /openCVLibrary310/src
 /openCVLibrary310/build
 openCVLibrary310/openCVLibrary310.iml
-OpenCV-android-sdk/
 
+
+/app/.externalNativeBuild/
+app/src/main/obj/
+openCVLibrary310/
