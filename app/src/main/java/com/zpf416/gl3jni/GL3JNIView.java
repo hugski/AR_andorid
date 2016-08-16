@@ -12,7 +12,6 @@ import android.view.ScaleGestureDetector;
 public class GL3JNIView extends GLSurfaceView{
     private final MyGLRenderer mRenderer;
 
-    ScaleGestureDetector mScaleDetector;
     public GL3JNIView(Context context){
         super(context);
 
@@ -25,34 +24,7 @@ public class GL3JNIView extends GLSurfaceView{
         mRenderer = new MyGLRenderer();
         setRenderer(mRenderer);
 
-        mScaleDetector = new ScaleGestureDetector(context,
-                new MySimpleOnScaleGestureListener());
     }
 
-    @Override
-    public boolean onTouchEvent (MotionEvent event){
-        mScaleDetector.onTouchEvent(event);
-        int action = event.getActionMasked();
-        switch (action) {
-            case MotionEvent.ACTION_DOWN:
-                GL3JNILib.resetRotDataOffset();
-                break;
 
-        }
-        return true;
-    }
-    private class MySimpleOnScaleGestureListener extends ScaleGestureDetector.SimpleOnScaleGestureListener {
-        private float mScaleFactor = 1.f;
-
-        @Override
-        public boolean onScale(ScaleGestureDetector detector) {
-            //scaling factor
-            mScaleFactor *= detector.getScaleFactor();
-            // Don't let the object get too small or too large
-            mScaleFactor = Math.max(0.1f, Math.min(mScaleFactor, 5.0f));
-            invalidate();
-            GL3JNILib.setScale(mScaleFactor);
-            return true;
-        }
-    }
 }

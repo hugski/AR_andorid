@@ -16,11 +16,11 @@ public class MyGLRenderer implements GLSurfaceView.Renderer{
 
     @Override
     public void onSurfaceChanged(GL10 gl, int width, int height) {
-
+        GL3JNILib.init(width, height);
     }
 
     @Override
     public void onDrawFrame(GL10 gl) {
-
+        GL3JNILib.step();
     }
 }
