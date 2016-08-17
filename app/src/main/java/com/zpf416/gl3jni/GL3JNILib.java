@@ -18,4 +18,9 @@ public class GL3JNILib {
 
     public static native void step ();
 
+    public static native void addAccelData(float ax, float ay, float az);
+
+    public static native void addGyroData(float gx, float gy, float gz);
+
+    public static native void addMagData(float mx, float my, float mz);
 }
