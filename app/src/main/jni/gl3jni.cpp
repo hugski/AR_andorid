@@ -1,43 +1,112 @@
+#define GLM_FORCE_RADIANS
+
+//header for JNI
 #include <jni.h>
+#include <android/log.h>
+
+//header for the OpenGL ES3 library
 #include <GLES3/gl3.h>
 
-#include <android/log.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 
-//android error interface
-#define LOG_TAG "libgl3jni"
-#define LOGI(...)  __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
-#define LOGE(...)  __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+//header for GLM library
+#include <glm/glm/glm.hpp>
+#include <glm/glm/gtc/matrix_transform.hpp>
 
+#define  LOG_TAG    "libgl3jni"
+#define  LOGI(...)  __android_log_print(ANDROID_LOG_INFO,LOG_TAG,__VA_ARGS__)
+#define  LOGE(...)  __android_log_print(ANDROID_LOG_ERROR,LOG_TAG,__VA_ARGS__)
+
+//shader programs and all variables handlers
 GLuint gProgram;
 GLuint gvPositionHandle;
-GLuint gvColorHandle;
+GLuint matrixHandle;
+GLuint sigmaHandle;
+GLuint scaleHandle;
 
-int width = 1280;
-int height = 720;
+//vertices for the grid
+const unsigned int GRID_SIZE=400;
+GLfloat gGrid[GRID_SIZE*GRID_SIZE*3]={0};
 
+//the view matrix and projection matrix
+glm::mat4 g_view_matrix;
+glm::mat4 g_projection_matrix;
+
+//initial position of the camera
+glm::vec3 g_position = glm::vec3( 0, 0, 4 );
+
+//FOV of the camera
+float g_initial_fov = glm::pi<float>()*0.25f;
+//rotation angle, set by sensors or by touch screen
+float rx, ry, rz;
+float scale=1.0f;
+
+int width = 640;
+int height = 480;
+
+// Vertex shader source code
 static const char g_vshader_code[] =
-        "#version 300 es\n"
-                "in vec4 vPosition;\n"
-                "in vec4 vColor;\n"
-                "out vec4 color;\n"
-                "void main() {\n"
-                "  gl_Position = vPosition;\n"
-                "  color = vColor;\n"
-                "}\n";
+	"#version 300 es\n"
+    "in vec4 vPosition;\n"
+    "uniform mat4 MVP;\n"
+	"uniform float sigma;\n"
+	"uniform float scale;\n"
+    "out vec4 color_based_on_position;\n"
+    "// Heat map generator                \n"
+    "vec4 heatMap(float v, float vmin, float vmax){\n"
+    "    float dv;\n"
+    "    float r=1.0, g=1.0, b=1.0;\n"
+    "	if (v < vmin){\n"
+    "		v = vmin;}\n"
+    "	if (v > vmax){\n"
+    "		v = vmax;}\n"
+    "	dv = vmax - vmin;\n"
+    "	if (v < (vmin + 0.25 * dv)) {\n"
+    "		r = 0.0;\n"
+    "		g = 4.0 * (v - vmin) / dv;\n"
+    "	} else if (v < (vmin + 0.5 * dv)) {\n"
+    "		r = 0.0;\n"
+    "		b = 1.0 + 4.0 * (vmin + 0.25 * dv - v) / dv;\n"
+    "	} else if (v < (vmin + 0.75 * dv)) {\n"
+    "		r = 4.0 * (v - vmin - 0.5 * dv) / dv;\n"
+    "		b = 0.0;\n"
+    "	} else {\n"
+    "		g = 1.0 + 4.0 * (vmin + 0.75 * dv - v) / dv;\n"
+    "		b = 0.0;\n"
+    "	}\n"
+    "    return vec4(r, g, b, 0.1);\n"
+    "}\n"
+    "void main() {\n"
+	"  //Simulation on GPU \n"
+    "  float x_data = vPosition.x;\n"
+    "  float y_data = vPosition.y;\n"
+    "  float sigma2 = sigma*sigma;\n"
+    "  float z = exp(-0.5*(x_data*x_data)/(sigma2)-0.5*(y_data*y_data)/(sigma2));\n"
+    "  vec4 position = vPosition;\n"
+	"  position.z = z*scale;\n"
+	"  position.x = position.x*scale;\n"
+	"  position.y = position.y*scale;\n"
+	"  gl_Position = MVP*position;\n"
+    "  color_based_on_position = heatMap(position.z, 0.0, 0.5);\n"
+	"  gl_PointSize = 5.0*scale;\n"
+    "}\n";
 
 // fragment shader source code
 static const char g_fshader_code[] =
-        "#version 300 es\n"
-                "precision mediump float;\n"
-                "in vec4 color;\n"
-                "out vec4 color_out;\n"
-                "void main() {\n"
-                "  color_out = color;\n"
-                "}\n";
+	"#version 300 es\n"
+    "precision mediump float;\n"
+    "in vec4 color_based_on_position;\n"
+	"out vec4 color;\n"
+    "void main() {\n"
+    "  color = color_based_on_position;\n"
+    "}\n";
 
+
+/**
+ * Print out the error string from OpenGL
+ */
 static void printGLString(const char *name, GLenum s) {
     const char *v = (const char *) glGetString(s);
     LOGI("GL %s = %s\n", name, v);
@@ -48,27 +117,32 @@ static void printGLString(const char *name, GLenum s) {
  */
 static void checkGlError(const char* op) {
     for (GLint error = glGetError(); error; error
-                                                    = glGetError()) {
+            = glGetError()) {
         LOGI("After %s() glError (0x%x)\n", op, error);
     }
 }
 
-GLuint loadShader(GLenum shader_type, const char * p_resource){
+/**
+ * Load shader program and return the id
+ */
+GLuint loadShader(GLenum shader_type, const char* p_source) {
     GLuint shader = glCreateShader(shader_type);
-    if(shader){
-        glShaderSource(shader, 1, &p_resource, 0);
+    if (shader) {
+        glShaderSource(shader, 1, &p_source, 0);
         glCompileShader(shader);
         GLint compiled = 0;
         glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
 
-        if(!compiled){
+        //Report error and delete the shader
+        if (!compiled) {
             GLint infoLen = 0;
             glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &infoLen);
-            if(infoLen){
+            if (infoLen) {
                 char* buf = (char*) malloc(infoLen);
-                if (buf){
+                if (buf) {
                     glGetShaderInfoLog(shader, infoLen, 0, buf);
-                    LOGE("Could not compile shader %d\n %s\n", shader_type, buf);
+                    LOGE("Could not compile shader %d:\n%s\n",
+                            shader_type, buf);
                     free(buf);
                 }
                 glDeleteShader(shader);
@@ -79,61 +153,121 @@ GLuint loadShader(GLenum shader_type, const char * p_resource){
     return shader;
 }
 
+/**
+ * Create the shader program with vertex and fragment shaders
+ */
 GLuint createShaderProgram(const char *vertex_shader_code, const char *fragment_shader_code){
-    //create the vertex and fragment shaders
-    GLuint vertex_shader_id = loadShader(GL_VERTEX_SHADER, vertex_shader_code);
-    if (!vertex_shader_id) {
-        return 0;
-    }
+	//create the vertex and fragment shaders
+	GLuint vertex_shader_id = loadShader(GL_VERTEX_SHADER, vertex_shader_code);
+	if (!vertex_shader_id) {
+		return 0;
+	}
 
-    GLuint fragment_shader_id = loadShader(GL_FRAGMENT_SHADER, fragment_shader_code);
+	GLuint fragment_shader_id = loadShader(GL_FRAGMENT_SHADER, fragment_shader_code);
     if (!fragment_shader_id) {
         return 0;
     }
 
-    GLint result = GL_FALSE;
-    //link the program
-    GLuint program_id = glCreateProgram();
-    glAttachShader(program_id, vertex_shader_id);
+	GLint result = GL_FALSE;
+	//link the program
+	GLuint program_id = glCreateProgram();
+	glAttachShader(program_id, vertex_shader_id);
     checkGlError("glAttachShader");
-    glAttachShader(program_id, fragment_shader_id);
+	glAttachShader(program_id, fragment_shader_id);
     checkGlError("glAttachShader");
-    glLinkProgram(program_id);
-    //check the program and ensure that the program is linked properly
-    glGetProgramiv(program_id, GL_LINK_STATUS, &result);
-    if ( result != GL_TRUE ){
-        //error handling with Android
-        GLint bufLength = 0;
-        glGetProgramiv(program_id, GL_INFO_LOG_LENGTH, &bufLength);
-        if (bufLength) {
-            char* buf = (char*) malloc(bufLength);
-            if (buf) {
-                glGetProgramInfoLog(program_id, bufLength, 0, buf);
-                LOGE("Could not link program:\n%s\n", buf);
-                free(buf);
-            }
-        }
-        glDeleteProgram(program_id);
-        program_id = 0;
-    }else{
-        LOGI("Linked program Successfully\n");
-    }
+	glLinkProgram(program_id);
+	//check the program and ensure that the program is linked properly
+	glGetProgramiv(program_id, GL_LINK_STATUS, &result);
+	if ( result != GL_TRUE ){
+		//error handling with Android
+		GLint bufLength = 0;
+		glGetProgramiv(program_id, GL_INFO_LOG_LENGTH, &bufLength);
+		if (bufLength) {
+			char* buf = (char*) malloc(bufLength);
+			if (buf) {
+				glGetProgramInfoLog(program_id, bufLength, 0, buf);
+				LOGE("Could not link program:\n%s\n", buf);
+				free(buf);
+			}
+		}
+		glDeleteProgram(program_id);
+		program_id = 0;
+	}else{
+		LOGI("Linked program Successfully\n");
+	}
 
-    //flag for delete, and will free all memories
-    //when the attached program is deleted
-    glDeleteShader(vertex_shader_id);
-    glDeleteShader(fragment_shader_id);
+	//flag for delete, and will free all memories
+	//when the attached program is deleted
+	glDeleteShader(vertex_shader_id);
+	glDeleteShader(fragment_shader_id);
 
-    return program_id;
+	return program_id;
 }
 
+/**
+ * Initialize the grid pattern vertices for GPU simulation
+ */
+void computeGrid(){
+	float grid_x = GRID_SIZE;
+	float grid_y = GRID_SIZE;
+	unsigned int data_counter = 0;
+	//define a grid ranging from -1 to +1
+	for(float x = -grid_x/2.0f; x<grid_x/2.0f; x+=1.0f){
+		for(float y = -grid_y/2.0f; y<grid_y/2.0f; y+=1.0f){
+			float x_data = 2.0f*x/grid_x;
+			float y_data = 2.0f*y/grid_y;
+			gGrid[data_counter] = x_data;
+			gGrid[data_counter+1] = y_data;
+			gGrid[data_counter+2] = 0;
+			data_counter+=3;
+		}
+	}
+}
 
+/**
+ * Compute the projection and view matrices based on camera parameters
+ */
+void computeProjectionMatrices(){
+	//direction vector for z
+	glm::vec3 direction_z(0, 0, -1.0);
+	//up vector
+	glm::vec3 up = glm::vec3(0,-1,0);
 
+	float aspect_ratio = (float)width/(float)height;
+	float nearZ = 0.1f;
+	float farZ = 100.0f;
+	float top = tan(g_initial_fov/2*nearZ);
+	float right = aspect_ratio*top;
+	float left = -right;
+	float bottom = -top;
+	g_projection_matrix = glm::frustum(left, right, bottom, top, nearZ, farZ);
+
+	// update the view matrix
+	g_view_matrix       = glm::lookAt(
+			g_position,           // camera position
+			g_position+direction_z, //view direction
+			up                  // up direction
+			);
+}
+
+/**
+ * Set the angles for rotation
+ */
+void setAngles(float irx, float iry, float irz){
+	rx = irx;
+	ry = iry;
+	rz = irz;
+}
+
+/**
+ * Initialization and call upon changes to graphics framebuffer.
+ */
 bool setupGraphics(int w, int h) {
     printGLString("Version", GL_VERSION);
     printGLString("Vendor", GL_VENDOR);
     printGLString("Renderer", GL_RENDERER);
     printGLString("Extensions", GL_EXTENSIONS);
+
     LOGI("setupGraphics(%d, %d)", w, h);
     gProgram = createShaderProgram(g_vshader_code, g_fshader_code);
     if (!gProgram) {
@@ -143,32 +277,58 @@ bool setupGraphics(int w, int h) {
     gvPositionHandle = glGetAttribLocation(gProgram, "vPosition");
     checkGlError("glGetAttribLocation");
     LOGI("glGetAttribLocation(\"vPosition\") = %d\n",
-         gvPositionHandle);
+            gvPositionHandle);
 
-    gvColorHandle = glGetAttribLocation(gProgram, "vColor");
-    checkGlError("glGetAttribLocation");
-    LOGI("glGetAttribLocation(\"vColor\") = %d\n",
-         gvColorHandle);
+    matrixHandle = glGetUniformLocation(gProgram, "MVP");
+    checkGlError("glGetUniformLocation");
+    LOGI("glGetUniformLocation(\"MVP\") = %d\n",
+    		matrixHandle);
+
+    sigmaHandle = glGetUniformLocation(gProgram, "sigma");
+    checkGlError("glGetUniformLocation");
+    LOGI("glGetUniformLocation(\"sigma\") = %d\n",
+    		sigmaHandle);
+
+    scaleHandle = glGetUniformLocation(gProgram, "scale");
+    checkGlError("glGetUniformLocation");
+    LOGI("glGetUniformLocation(\"scale\") = %d\n",
+    		scaleHandle);
 
     glViewport(0, 0, w, h);
     width = w;
     height = h;
 
     checkGlError("glViewport");
-    return  true;
-}
 
-GLfloat gTriangle[9]={-1.0f, -1.0f, 0.0f,
-                      1.0f, -1.0f, 0.0f,
-                      0.0f, 1.0f, 0.0f};
-GLfloat gColor[9]={1.0f, 0.0f, 0.0f,
-                   0.0f, 1.0f, 0.0f,
-                   0.0f, 0.0f, 1.0f};
+    computeGrid();
+    return true;
+}
 
 /**
  * Calls per render, perform graphics updates
  */
 void renderFrame() {
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    static float sigma;
+
+    //update the variables for animations
+    sigma+=0.002f;
+    if(sigma>0.5f){
+       sigma = 0.002f;
+    }
+
+    //get the View and Model Matrix and apply to the rendering
+    computeProjectionMatrices();
+    glm::mat4 projection_matrix = g_projection_matrix;
+    glm::mat4 view_matrix = g_view_matrix;
+    glm::mat4 model_matrix = glm::mat4(1.0);
+    model_matrix = glm::rotate(model_matrix, rz, glm::vec3(-1.0f, 0.0f, 0.0f));
+    model_matrix = glm::rotate(model_matrix, ry, glm::vec3(0.0f, -1.0f, 0.0f));
+    model_matrix = glm::rotate(model_matrix, rx, glm::vec3(0.0f, 0.0f, 1.0f));
+    glm::mat4 mvp = projection_matrix * view_matrix * model_matrix;
+
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     checkGlError("glClearColor");
 
@@ -178,40 +338,56 @@ void renderFrame() {
     glUseProgram(gProgram);
     checkGlError("glUseProgram");
 
-    glVertexAttribPointer(gvPositionHandle, 3, GL_FLOAT, GL_FALSE, 0, gTriangle);
-    checkGlError("glVertexAttribPointer");
+    glUniformMatrix4fv(matrixHandle, 1, GL_FALSE, &mvp[0][0]);
+    checkGlError("glUniformMatrix4fv");
 
-    glVertexAttribPointer(gvColorHandle, 3, GL_FLOAT, GL_FALSE, 0, gColor);
+    glUniform1f(sigmaHandle, sigma);
+    checkGlError("glUniform1f");
+
+    glUniform1f(scaleHandle, scale);
+    checkGlError("glUniform1f");
+
+    glVertexAttribPointer(gvPositionHandle, 3, GL_FLOAT, GL_FALSE, 0, gGrid);
     checkGlError("glVertexAttribPointer");
 
     glEnableVertexAttribArray(gvPositionHandle);
     checkGlError("glEnableVertexAttribArray");
 
-    glEnableVertexAttribArray(gvColorHandle);
-    checkGlError("glEnableVertexAttribArray");
-
-    glDrawArrays(GL_TRIANGLES, 0, 9);
+    glDrawArrays(GL_POINTS, 0, GRID_SIZE*GRID_SIZE);
     checkGlError("glDrawArrays");
 }
 
+//external calls for Java
 extern "C" {
-JNIEXPORT void JNICALL Java_com_zpf416_gl3jni_GL3JNILib_init(JNIEnv * env, jobject obj,  jint width, jint height);
-JNIEXPORT void JNICALL Java_com_zpf416_gl3jni_GL3JNILib_step(JNIEnv * env, jobject obj);
+    JNIEXPORT void JNICALL Java_com_zpf416_gl3jni_GL3JNILib_init(JNIEnv * env, jobject obj,  jint width, jint height);
+    JNIEXPORT void JNICALL Java_com_zpf416_gl3jni_GL3JNILib_step(JNIEnv * env, jobject obj);
+    JNIEXPORT void JNICALL Java_com_zpf416_gl3jni_GL3JNILib_addRotData(JNIEnv * env, jobject obj,  jfloat rx, jfloat ry, jfloat rz);
+    JNIEXPORT void JNICALL Java_com_zpf416_gl3jni_GL3JNILib_setScale(JNIEnv * env, jobject obj,  jfloat jscale);
 };
 
-
-JNIEXPORT void JNICALL
-Java_com_zpf416_gl3jni_GL3JNILib_init(JNIEnv *env, jobject type, jint width, jint height) {
-
-    // TODO
+//link to internal calls
+JNIEXPORT void JNICALL Java_com_zpf416_gl3jni_GL3JNILib_init(JNIEnv * env, jobject obj,  jint width, jint height)
+{
     setupGraphics(width, height);
 }
-
-
-JNIEXPORT void JNICALL
-Java_com_zpf416_gl3jni_GL3JNILib_step(JNIEnv *env, jobject type) {
-
-    // TODO
+JNIEXPORT void JNICALL Java_com_zpf416_gl3jni_GL3JNILib_step(JNIEnv * env, jobject obj)
+{
     renderFrame();
 }
+JNIEXPORT void JNICALL Java_com_zpf416_gl3jni_GL3JNILib_addRotData(JNIEnv * env, jobject obj, jfloat rx, jfloat ry, jfloat rz)
+{
+    setAngles(rx, ry, rz);
+}
+JNIEXPORT void JNICALL Java_com_zpf416_gl3jni_GL3JNILib_setScale(JNIEnv * env, jobject obj, jfloat jscale)
+{
+    scale = jscale;
+    LOGI("Scale is %lf", scale);
+}
 
+JNIEXPORT void JNICALL
+Java_com_zpf416_gl3jni_GL3JNILib_addRotData(JNIEnv *env, jclass type, jfloat rx, jfloat ry,
+                                            jfloat rz) {
+
+    // TODO
+
+}

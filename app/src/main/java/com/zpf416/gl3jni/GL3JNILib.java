@@ -1,9 +1,10 @@
 package com.zpf416.gl3jni;
 
-/**
- * Created by zpff on 2016/7/11.
- */
+// Wrapper for native library
 
+/**
+ * Linking the native library calls to Java
+ */
 public class GL3JNILib {
 
     static {
@@ -15,7 +16,10 @@ public class GL3JNILib {
      * @param height the current view height
      */
     public static native void init(int width, int height);
+    public static native void step();
 
-    public static native void step ();
+    //pass the device rotation angles and the scaling factor to the OpenGL ES 3.0 side
+    public static native void addRotData(float rx, float ry, float rz);
+    public static native void setScale(float scale);
 
 }
