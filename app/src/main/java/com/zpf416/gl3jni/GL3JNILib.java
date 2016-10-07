@@ -21,5 +21,4 @@ public class GL3JNILib {
     //pass the device rotation angles and the scaling factor to the OpenGL ES 3.0 side
     public static native void addRotData(float rx, float ry, float rz);
     public static native void setScale(float scale);
-
 }
